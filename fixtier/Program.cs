@@ -26,9 +26,25 @@ namespace fixtier
             Action<string> log = Console.WriteLine;
             IFixer fixer = config.DryRun ? (IFixer)new DryRunFixer(log) : new TierFixer(log);
             var client = Utils.CreateBlobClient(config.ConnectionString);
-            IBlobProvider provider = new AllBlobProvider(client, config.ContainerName, log);
+            IBlobProvider provider = new WarmBlobProvider(client, config.ContainerName, log);
+
+            int numBlobs = 0;
+            List<CloudBlockBlob> blobs = new List<CloudBlockBlob>(config.MaxBlobs);
 
             foreach (var blob in provider.Provide())
+            {
+                numBlobs++;
+                if (numBlobs > config.MaxBlobs)
+                {
+                    throw new InvalidOperationException($"Number of provided blobs exceeds the limit {config.MaxBlobs}");
+                }
+                else
+                {
+                    blobs.Add(blob);
+                }
+            }
+
+            foreach (var blob in blobs)
             {
                 fixer.Fix(blob);
             }
@@ -86,6 +102,29 @@ namespace fixtier
         {
             var container = this.client.GetContainerReference(this.containerPath);
             return container.ListBlobs().OfType<CloudBlockBlob>();
+        }
+    }
+
+    public class WarmBlobProvider : IBlobProvider
+    {
+        private readonly CloudBlobClient client;
+        private readonly string containerPath;
+        private readonly Action<string> log;
+
+        public WarmBlobProvider(CloudBlobClient client, string containerPath, Action<string> log)
+        {
+            this.client = client;
+            this.containerPath = containerPath;
+            this.log = log;
+        }
+
+        public IEnumerable<CloudBlockBlob> Provide()
+        {
+            var container = this.client.GetContainerReference(this.containerPath);
+            var blobs = container.ListBlobs(useFlatBlobListing: true, blobListingDetails: BlobListingDetails.Metadata | BlobListingDetails.Snapshots);
+
+            return blobs.OfType<CloudBlockBlob>()
+                        .Where(b => b.Properties.StandardBlobTier.HasValue && b.Properties.StandardBlobTier.Value != StandardBlobTier.Archive);
         }
     }
 

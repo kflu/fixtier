@@ -12,12 +12,14 @@ namespace fixtier
         public string ConnectionString;
         public string ContainerName;
         public bool DryRun;
+        public int MaxBlobs = 5000;
 
         private static Dictionary<string, Action<string, Configuration>> map = new Dictionary<string, Action<string, Configuration>>(StringComparer.OrdinalIgnoreCase)
         {
             { "container", (val, config) => config.ContainerName = val },
             { "connection-string", (val, config) => config.ConnectionString = val },
             { "dry-run", (val, config) => config.DryRun = bool.Parse(val) },
+            { "max-blobs", (val, config) => config.MaxBlobs = int.Parse(val) },
         };
 
         public override string ToString() => JsonConvert.SerializeObject(this);
