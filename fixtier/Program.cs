@@ -23,9 +23,16 @@ namespace fixtier
                 return;
             }
 
+            if (config.Debug)
+            {
+                Console.WriteLine("Press any key to continue...");
+                Console.Read();
+            }
+
             Action<string> log = Console.WriteLine;
             IFixer fixer = config.DryRun ? (IFixer)new DryRunFixer(log) : new TierFixer(log);
             var client = Utils.CreateBlobClient(config.ConnectionString);
+            //IBlobProvider provider = new AllBlobProvider(client, config.ContainerName, log);
             IBlobProvider provider = new WarmBlobProvider(client, config.ContainerName, log);
 
             int numBlobs = 0;
@@ -101,7 +108,7 @@ namespace fixtier
         public IEnumerable<CloudBlockBlob> Provide()
         {
             var container = this.client.GetContainerReference(this.containerPath);
-            return container.ListBlobs().OfType<CloudBlockBlob>();
+            return container.ListBlobs(useFlatBlobListing: true, blobListingDetails: BlobListingDetails.Metadata | BlobListingDetails.Snapshots).OfType<CloudBlockBlob>();
         }
     }
 
@@ -121,10 +128,9 @@ namespace fixtier
         public IEnumerable<CloudBlockBlob> Provide()
         {
             var container = this.client.GetContainerReference(this.containerPath);
-            var blobs = container.ListBlobs(useFlatBlobListing: true, blobListingDetails: BlobListingDetails.Metadata | BlobListingDetails.Snapshots);
-
-            return blobs.OfType<CloudBlockBlob>()
-                        .Where(b => b.Properties.StandardBlobTier.HasValue && b.Properties.StandardBlobTier.Value != StandardBlobTier.Archive);
+            return container.ListBlobs(useFlatBlobListing: true, blobListingDetails: BlobListingDetails.Metadata | BlobListingDetails.Snapshots)
+                            .OfType<CloudBlockBlob>()
+                            .Where(b => b.Properties.StandardBlobTier.HasValue && b.Properties.StandardBlobTier.Value != StandardBlobTier.Archive);
         }
     }
 
