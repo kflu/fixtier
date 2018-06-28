@@ -14,6 +14,7 @@ namespace fixtier
         public bool DryRun;
         public int MaxBlobs = 5000;
         public bool Debug = false;
+        public string BlobPath = null;
 
         private static Dictionary<string, Action<string, Configuration>> map = new Dictionary<string, Action<string, Configuration>>(StringComparer.OrdinalIgnoreCase)
         {
@@ -22,6 +23,7 @@ namespace fixtier
             { "dry-run", (val, config) => config.DryRun = bool.Parse(val) },
             { "max-blobs", (val, config) => config.MaxBlobs = int.Parse(val) },
             { "debug", (val, config) => config.Debug = bool.Parse(val) },
+            { "blob-path", (val, config) => config.BlobPath = val },
         };
 
         public override string ToString() => JsonConvert.SerializeObject(this);

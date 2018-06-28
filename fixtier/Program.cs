@@ -11,50 +11,75 @@ using Newtonsoft.Json;
 
 namespace fixtier
 {
+    enum ExitCode
+    {
+        OK = 0,
+        ErrorParseArgs = 1,
+        Other = 2,
+    }
+
     class Program
     {
-        static void Main(string[] args)
+        static int Main(string[] args)
         {
-            var (success, config) = Configuration.TryParseCommandline(args);
-            Console.WriteLine(config);
-            if (!success)
+            try
             {
-                Configuration.PrintUsage();
-                return;
-            }
-
-            if (config.Debug)
-            {
-                Console.WriteLine("Press any key to continue...");
-                Console.Read();
-            }
-
-            Action<string> log = Console.WriteLine;
-            IFixer fixer = config.DryRun ? (IFixer)new DryRunFixer(log) : new TierFixer(log);
-            var client = Utils.CreateBlobClient(config.ConnectionString);
-            //IBlobProvider provider = new AllBlobProvider(client, config.ContainerName, log);
-            IBlobProvider provider = new WarmBlobProvider(client, config.ContainerName, log);
-
-            int numBlobs = 0;
-            List<CloudBlockBlob> blobs = new List<CloudBlockBlob>(config.MaxBlobs);
-
-            foreach (var blob in provider.Provide())
-            {
-                numBlobs++;
-                if (numBlobs > config.MaxBlobs)
+                var (success, config) = Configuration.TryParseCommandline(args);
+                Console.WriteLine(config);
+                if (!success)
                 {
-                    throw new InvalidOperationException($"Number of provided blobs exceeds the limit {config.MaxBlobs}");
+                    Configuration.PrintUsage();
+                    return (int)ExitCode.ErrorParseArgs;
+                }
+
+                if (config.Debug)
+                {
+                    Console.WriteLine("Press any key to continue...");
+                    Console.Read();
+                }
+
+                Action<string> log = Console.WriteLine;
+                IFixer fixer = config.DryRun ? (IFixer)new DryRunFixer(log) : new TierFixer(log);
+                var client = Utils.CreateBlobClient(config.ConnectionString);
+                IBlobProvider provider;
+                if (config.BlobPath != null)
+                {
+                    provider = new SpecifiedBlobProvider(client, config.ContainerName, log, config.BlobPath);
                 }
                 else
                 {
-                    blobs.Add(blob);
+                    //provider = new AllBlobProvider(client, config.ContainerName, log);
+                    provider = new WarmBlobProvider(client, config.ContainerName, log);
+                }
+
+                int numBlobs = 0;
+                List<CloudBlockBlob> blobs = new List<CloudBlockBlob>(config.MaxBlobs);
+
+                foreach (var blob in provider.Provide())
+                {
+                    numBlobs++;
+                    if (numBlobs > config.MaxBlobs)
+                    {
+                        throw new InvalidOperationException($"Number of provided blobs exceeds the limit {config.MaxBlobs}");
+                    }
+                    else
+                    {
+                        blobs.Add(blob);
+                    }
+                }
+
+                foreach (var blob in blobs)
+                {
+                    fixer.Fix(blob);
                 }
             }
-
-            foreach (var blob in blobs)
+            catch (Exception e)
             {
-                fixer.Fix(blob);
+                Console.Error.WriteLine($"An error happened: {e.ToString()}");
+                return (int)ExitCode.Other;
             }
+
+            return (int)ExitCode.OK;
         }
     }
 
@@ -89,6 +114,29 @@ namespace fixtier
         {
             this.log($"Setting {blob.Name} to Archive tier");
             blob.SetStandardBlobTier(StandardBlobTier.Archive);
+        }
+    }
+
+    public class SpecifiedBlobProvider : IBlobProvider
+    {
+        private readonly CloudBlobClient client;
+        private readonly string containerPath;
+        private readonly Action<string> log;
+        private readonly string path;
+
+        public SpecifiedBlobProvider(CloudBlobClient client, string containerPath, Action<string> log, string path)
+        {
+            this.client = client;
+            this.containerPath = containerPath;
+            this.log = log;
+            this.path = path;
+        }
+
+        public IEnumerable<CloudBlockBlob> Provide()
+        {
+            var blob = new CloudBlockBlob(new Uri(this.client.StorageUri.PrimaryUri, $"{this.containerPath}/{this.path}"), this.client.Credentials);
+            this.log($"Blob specified: {blob.Uri}");
+            return new[] { blob };
         }
     }
 
